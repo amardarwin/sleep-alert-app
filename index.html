@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pa">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Driver Drowsiness Detector</title>
+    <style>
+        body { 
+            text-align: center; font-family: sans-serif; 
+            background-color: #1a1a1a; color: white; margin-top: 20px;
+            transition: background-color 0.3s;
+        }
+        #webcam-container { margin-top: 20px; display: flex; justify-content: center; }
+        canvas { border: 6px solid #fff; border-radius: 10px; }
+        #label-container { font-size: 30px; font-weight: bold; margin-top: 20px; }
+        button {
+            padding: 15px 30px; font-size: 20px; cursor: pointer;
+            background-color: #007bff; color: white; border: none; border-radius: 8px;
+        }
+        .danger-mode { background-color: #ff0000 !important; }
+    </style>
+</head>
+<body>
+
+    <h2>AI Smart Driver Drowsiness Alert System</h2>
+    <button type="button" onclick="init()">Start System / ਸਿਸਟਮ ਚਾਲੂ ਕਰੋ</button>
+    
+    <div id="webcam-container"></div>
+    <div id="label-container">System Ready...</div>
+
+    <!-- ਆਨਲਾਈਨ ਅਲਾਰਮ ਸਾਈਰਨ -->
+    <audio id="alarmSound" loop src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg"></audio>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    
+    <script type="text/javascript">
+        // ਤੁਹਾਡਾ ਸਹੀ Teachable Machine ਲਿੰਕ
+        const URL = "https://teachablemachine.withgoogle.com/models/Rjriynb4V/";
+
+        let model, webcam, labelContainer, maxPredictions;
+        let drowsyStartTime = null; 
+        let isAlarmPlaying = false;
+        const ALARM_DELAY = 2000; 
+
+        async function init() {
+            try {
+                const modelURL = URL + "model.json";
+                const metadataURL = URL + "metadata.json";
+
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                webcam = new tmImage.Webcam(400, 300, true); 
+                await webcam.setup(); 
+                await webcam.play();
+                window.requestAnimationFrame(loop);
+
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                labelContainer = document.getElementById("label-container");
+            } catch (error) {
+                console.error("Error starting camera or model:", error);
+                alert("ਕੈਮਰਾ ਜਾਂ ਮਾਡਲ ਚਾਲੂ ਕਰਨ ਵਿੱਚ ਸਮੱਸਿਆ ਆਈ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਬ੍ਰਾਊਜ਼ਰ ਨੂੰ ਕੈਮਰਾ ਵਰਤਣ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ।");
+            }
+        }
+
+        async function loop() {
+            webcam.update(); 
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            let isCurrentlyDrowsy = false;
+
+            for (let i = 0; i < maxPredictions; i++) {
+                if (prediction[i].className === "Drowsy" && prediction[i].probability.toFixed(2) > 0.85) {
+                    isCurrentlyDrowsy = true;
+                }
+            }
+
+            const alarm = document.getElementById("alarmSound");
+
+            if (isCurrentlyDrowsy) {
+                if (drowsyStartTime === null) {
+                    drowsyStartTime = Date.now();
+                } else {
+                    let timePassed = Date.now() - drowsyStartTime;
+                    if (timePassed > ALARM_DELAY) {
+                        document.body.classList.add("danger-mode");
+                        labelContainer.innerHTML = "⚠️ WAKE UP! (Drowsiness Detected) ⚠️";
+                        labelContainer.style.color = "white";
+                        
+                        if (!isAlarmPlaying) {
+                            alarm.play();
+                            isAlarmPlaying = true;
+                        }
+                    } else {
+                        labelContainer.innerHTML = "Eyes Closed... (Checking)";
+                        labelContainer.style.color = "yellow";
+                    }
+                }
+            } else {
+                drowsyStartTime = null;
+                document.body.classList.remove("danger-mode");
+                labelContainer.innerHTML = "Driver Awake (Safe)";
+                labelContainer.style.color = "#00ff00";
+                
+                if (isAlarmPlaying) {
+                    alarm.pause();
+                    alarm.currentTime = 0; 
+                    isAlarmPlaying = false;
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+
