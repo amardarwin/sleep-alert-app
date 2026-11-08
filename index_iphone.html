@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pa">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Driver Drowsiness Detector</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <style>
+        body { 
+            text-align: center; font-family: sans-serif; 
+            background-color: #1a1a1a; color: white; margin: 0; padding: 20px;
+            transition: background-color 0.3s;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            min-height: 100vh;
+        }
+        #webcam-container { margin-top: 20px; display: flex; justify-content: center; width: 100%; max-width: 400px;}
+        canvas { border: 6px solid #fff; border-radius: 10px; width: 100% !important; height: auto !important; max-width: 400px; }
+        #label-container { font-size: 24px; font-weight: bold; margin-top: 20px; padding: 10px; }
+        .btn {
+            padding: 15px 30px; font-size: 20px; cursor: pointer;
+            color: white; border: none; border-radius: 8px; margin: 10px;
+            width: 80%; max-width: 300px; font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        #unlock-btn { background-color: #28a745; }
+        #start-btn { background-color: #007bff; display: none; }
+        .danger-mode { background-color: #ff0000 !important; }
+        h2 { font-size: 22px; margin-bottom: 5px;}
+    </style>
+</head>
+<body>
+
+    <h2>AI Driver Sleep Alert System</h2>
+    
+    <!-- iPhone ਲਈ ਆਵਾਜ਼ ਨੂੰ ਮਨਜ਼ੂਰੀ ਦੇਣ ਵਾਲਾ ਬਟਨ -->
+    <button id="unlock-btn" class="btn" onclick="unlockAudio()">1. ਸਿਸਟਮ ਅਤੇ ਆਵਾਜ਼ ਚਾਲੂ ਕਰੋ</button>
+    
+    <!-- ਕੈਮਰਾ ਚਲਾਉਣ ਵਾਲਾ ਬਟਨ (ਪਹਿਲਾਂ ਲੁਕਿਆ ਹੋਇਆ) -->
+    <button id="start-btn" class="btn" onclick="init()">2. ਕੈਮਰਾ ਸ਼ੁਰੂ ਕਰੋ</button>
+    
+    <div id="webcam-container"></div>
+    <div id="label-container">System Ready...</div>
+
+    <!-- ਆਨਲਾਈਨ ਅਲਾਰਮ ਸਾਈਰਨ -->
+    <audio id="alarmSound" loop src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    
+    <script type="text/javascript">
+        const URL = "https://teachablemachine.withgoogle.com/models/Rjriynb4V/";
+
+        let model, webcam, labelContainer, maxPredictions;
+        let drowsyStartTime = null; 
+        let isAlarmPlaying = false;
+        const ALARM_DELAY = 2000; 
+        const alarm = document.getElementById("alarmSound");
+
+        // ਆਈਫੋਨ (iOS) ਦੀ ਆਵਾਜ਼ ਅਨਲੌਕ ਕਰਨ ਵਾਲਾ ਫੰਕਸ਼ਨ
+        function unlockAudio() {
+            alarm.play().then(() => {
+                alarm.pause();
+                alarm.currentTime = 0;
+                
+                // ਪਹਿਲਾ ਬਟਨ ਲੁਕਾਓ, ਦੂਜਾ ਬਟਨ ਦਿਖਾਓ
+                document.getElementById("unlock-btn").style.display = "none";
+                document.getElementById("start-btn").style.display = "block";
+                document.getElementById("label-container").innerHTML = "Audio Unlocked! Now start camera.";
+            }).catch(error => {
+                console.log("Audio play failed:", error);
+                alert("ਕਿਰਪਾ ਕਰਕੇ ਫੋਨ ਨੂੰ ਸਾਈਲੈਂਟ ਮੋਡ ਤੋਂ ਹਟਾਓ!");
+            });
+        }
+
+        async function init() {
+            try {
+                // ਕੈਮਰਾ ਬਟਨ ਲੁਕਾਓ ਅਤੇ ਸੁਨੇਹਾ ਦਿਖਾਓ
+                document.getElementById("start-btn").style.display = "none";
+                labelContainer = document.getElementById("label-container");
+                labelContainer.innerHTML = "ਕੈਮਰਾ ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ... (Loading Camera)";
+
+                const modelURL = URL + "model.json";
+                const metadataURL = URL + "metadata.json";
+
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                // ਮੋਬਾਈਲ ਲਈ ਕੈਮਰੇ ਦੀ ਸੈਟਿੰਗ (ਫਰੰਟ ਕੈਮਰਾ)
+                const flip = true; 
+                webcam = new tmImage.Webcam(400, 400, flip); 
+                
+                // ਮੋਬਾਈਲ 'ਤੇ ਫਰੰਟ ਕੈਮਰੇ ਦੀ ਇਜਾਜ਼ਤ ਮੰਗਣ ਲਈ
+                await webcam.setup({ facingMode: "user" }); 
+                
+                await webcam.play();
+                window.requestAnimationFrame(loop);
+
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                labelContainer.innerHTML = "ਕੈਮਰਾ ਚਾਲੂ ਹੈ! (Monitoring...)";
+            } catch (error) {
+                console.error("Error starting camera or model:", error);
+                alert("ਕੈਮਰਾ ਚਾਲੂ ਨਹੀਂ ਹੋਇਆ। ਕਿਰਪਾ ਕਰਕੇ ਬ੍ਰਾਊਜ਼ਰ ਦੀ ਕੈਮਰਾ ਪਰਮਿਸ਼ਨ 'Allow' ਕਰੋ।");
+            }
+        }
+
+        async function loop() {
+            webcam.update(); 
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            let isCurrentlyDrowsy = false;
+
+            for (let i = 0; i < maxPredictions; i++) {
+                // ਜੇਕਰ 85% ਤੋਂ ਵੱਧ ਲੱਗਦਾ ਹੈ ਕਿ ਅੱਖਾਂ ਬੰਦ ਹਨ
+                if (prediction[i].className === "Drowsy" && prediction[i].probability.toFixed(2) > 0.85) {
+                    isCurrentlyDrowsy = true;
+                }
+            }
+
+            if (isCurrentlyDrowsy) {
+                if (drowsyStartTime === null) {
+                    drowsyStartTime = Date.now();
+                } else {
+                    let timePassed = Date.now() - drowsyStartTime;
+                    // ਜੇਕਰ ਲਗਾਤਾਰ 2 ਸੈਕਿੰਡ ਤੱਕ ਅੱਖਾਂ ਬੰਦ ਰਹਿਣ ਤਾਂ ਅਲਾਰਮ
+                    if (timePassed > ALARM_DELAY) {
+                        document.body.classList.add("danger-mode");
+                        labelContainer.innerHTML = "⚠️ WAKE UP! (Drowsiness Detected) ⚠️";
+                        labelContainer.style.color = "white";
+                        
+                        if (!isAlarmPlaying) {
+                            alarm.play().catch(e => console.log("Play error:", e));
+                            isAlarmPlaying = true;
+                        }
+                    } else {
+                        labelContainer.innerHTML = "Eyes Closed... (Checking)";
+                        labelContainer.style.color = "yellow";
+                    }
+                }
+            } else {
+                drowsyStartTime = null;
+                document.body.classList.remove("danger-mode");
+                labelContainer.innerHTML = "Driver Awake (Safe)";
+                labelContainer.style.color = "#00ff00";
+                
+                if (isAlarmPlaying) {
+                    alarm.pause();
+                    alarm.currentTime = 0; 
+                    isAlarmPlaying = false;
+                }
+            }
+        }
+    </script>
+</body>
+</html>
